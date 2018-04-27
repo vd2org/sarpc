@@ -66,7 +66,7 @@ class RPCDispatcher(object):
 
         self.method_map[name] = f
 
-    async def dispatch(self, request, caller=None):
+    async def dispatch(self, request):
         """Fully handle request.
 
         The dispatch method determines which method to call, calls it and
@@ -97,18 +97,6 @@ class RPCDispatcher(object):
         :param caller: An optional callable used to invoke the method.
         :return: An :py:func:`~tinyrpc.RPCResponse`.
         """
-        if hasattr(request, 'create_batch_response'):
-            results = [self._dispatch(req, caller) for req in request]
-
-            response = request.create_batch_response()
-            if response != None:
-                response.extend(results)
-
-            return response
-        else:
-            return await self._dispatch(request, caller)
-
-    async def _dispatch(self, request, caller):
         try:
             try:
                 method = self.get_method(request.method)
@@ -117,10 +105,7 @@ class RPCDispatcher(object):
 
             # we found the method
             try:
-                if caller is not None:
-                    result = await caller(method, request.args, request.kwargs)
-                else:
-                    result = await method(*request.args, **request.kwargs)
+                result = await method(*request.args, **request.kwargs)
             except Exception as e:
                 # an error occured within the method, return it
                 return request.error_respond(e)

@@ -253,11 +253,6 @@ class JSONSRPCProtocol(RPCProtocol):
         return request
 
     def parse_reply(self, data):
-        if six.PY3 and isinstance(data, bytes):
-            # zmq won't accept unicode strings, and this is the other
-            # end; decoding non-unicode strings back into unicode
-            data = data.decode()
-
         try:
             rep = json.loads(data)
         except Exception as e:
@@ -308,11 +303,6 @@ class JSONSRPCProtocol(RPCProtocol):
         return response
 
     def parse_request(self, data):
-        if six.PY3 and isinstance(data, bytes):
-            # zmq won't accept unicode strings, and this is the other
-            # end; decoding non-unicode strings back into unicode
-            data = data.decode()
-
         try:
             req = json.loads(data)
         except Exception as e:
@@ -348,15 +338,3 @@ class JSONSRPCProtocol(RPCProtocol):
 
         return request
 
-    async def _caller(self, method, args, kwargs):
-        # custom dispatcher called by RPCDispatcher._dispatch()
-        # when provided with the address of a custom dispatcher.
-        # Used to generate a customized error message when the
-        # function signature doesn't match the parameter list.
-
-        try:
-            inspect.getcallargs(method, *args, **kwargs)
-        except TypeError:
-            raise JSONRPCInvalidParamsError()
-        else:
-            return await method(*args, **kwargs)

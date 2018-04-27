@@ -5,19 +5,9 @@ from .. import RPCProtocol, RPCRequest, RPCResponse, RPCErrorResponse, \
     InvalidRequestError, MethodNotFoundError, ServerError, \
     InvalidReplyError, RPCError, RPCRequest, RPCResponse
 
-import json
 import six
-import inspect
-import sys
+import pickle
 
-if 'jsonext' in sys.modules:
-    # jsonext was imported before this file, assume the intent is that
-    # it is used in place of the regular json encoder.
-    import jsonext
-
-    json_dumps = jsonext.dumps
-else:
-    json_dumps = json.dumps
 
 
 class FixedErrorMessageMixin(object):
@@ -29,7 +19,7 @@ class FixedErrorMessageMixin(object):
         super(FixedErrorMessageMixin, self).__init__(*args, **kwargs)
 
     def error_respond(self):
-        response = JSONRPCErrorResponse()
+        response = PickleRPCErrorResponse()
 
         response.error = self.message
         response.unique_id = None
@@ -69,22 +59,20 @@ class JSONRPCServerError(FixedErrorMessageMixin, InvalidRequestError):
     message = ''
 
 
-class JSONRPCSuccessResponse(RPCResponse):
+class PickleRPCSuccessResponse(RPCResponse):
     def _to_dict(self):
         return {
-            'jsonrpc': JSONRPCProtocol.JSON_RPC_VERSION,
             'id': self.unique_id,
             'result': self.result
         }
 
-    def serialize(self):
-        return json_dumps(self._to_dict()).encode()
+    def serialize(self, pickle_protocol=None):
+        return pickle.dumps(self._to_dict(), protocol=pickle_protocol)
 
 
-class JSONRPCErrorResponse(RPCErrorResponse):
+class PickleRPCErrorResponse(RPCErrorResponse):
     def _to_dict(self):
         msg = {
-            'jsonrpc': JSONRPCProtocol.JSON_RPC_VERSION,
             'id': self.unique_id,
             'error': {
                 'message': str(self.error),
@@ -95,8 +83,8 @@ class JSONRPCErrorResponse(RPCErrorResponse):
             msg['error']['data'] = self.data
         return msg
 
-    def serialize(self):
-        return json_dumps(self._to_dict()).encode()
+    def serialize(self, pickle_protocol=None):
+        return pickle.dumps(self._to_dict(), protocol=pickle_protocol)
 
 
 def _get_code_message_and_data(error):
@@ -131,12 +119,12 @@ def _get_code_message_and_data(error):
     return code, msg, data
 
 
-class JSONRPCRequest(RPCRequest):
+class PickleRPCRequest(RPCRequest):
     def error_respond(self, error):
         if self.unique_id is None:
             return None
 
-        response = JSONRPCErrorResponse()
+        response = PickleRPCErrorResponse()
 
         code, msg, data = _get_code_message_and_data(error)
 
@@ -151,7 +139,7 @@ class JSONRPCRequest(RPCRequest):
         if self.unique_id is None:
             return None
 
-        response = JSONRPCSuccessResponse()
+        response = PickleRPCSuccessResponse()
 
         response.result = result
         response.unique_id = self.unique_id
@@ -160,44 +148,38 @@ class JSONRPCRequest(RPCRequest):
 
     def _to_dict(self):
         jdata = {
-            'jsonrpc': JSONRPCProtocol.JSON_RPC_VERSION,
             'method': self.method,
         }
         if self.args:
-            jdata['params'] = self.args
+            jdata['args'] = self.args
         if self.kwargs:
-            jdata['params'] = self.kwargs
+            jdata['kwargs'] = self.kwargs
         if hasattr(self, 'unique_id') and self.unique_id is not None:
             jdata['id'] = self.unique_id
         return jdata
 
-    def serialize(self):
-        return json_dumps(self._to_dict()).encode()
+    def serialize(self, pickle_protocol=None):
+        return pickle.dumps(self._to_dict(), protocol=pickle_protocol)
 
 
-class JSONRPCProtocol(RPCProtocol):
-    """JSONRPC protocol implementation.
+class PickleRPCProtocol(RPCProtocol):
+    """PickleRPC protocol implementation."""
 
-    Currently, only version 2.0 is supported."""
+    PICKLE_RPC_VERSION = "1.0"
+    _ALLOWED_REPLY_KEYS = sorted(['id', 'version', 'error', 'result'])
+    _ALLOWED_REQUEST_KEYS = sorted(['id', 'version', 'method', 'args', 'kwargs'])
 
-    JSON_RPC_VERSION = "2.0"
-    _ALLOWED_REPLY_KEYS = sorted(['id', 'jsonrpc', 'error', 'result'])
-    _ALLOWED_REQUEST_KEYS = sorted(['id', 'jsonrpc', 'method', 'params'])
-
-    def __init__(self, *args, **kwargs):
-        super(JSONRPCProtocol, self).__init__(*args, **kwargs)
+    def __init__(self, *args, pickle_protocol=None, **kwargs):
+        super(PickleRPCProtocol, self).__init__(*args, **kwargs)
         self._id_counter = 0
+        self.pickle_protocol = pickle_protocol
 
     def _get_unique_id(self):
         self._id_counter += 1
         return self._id_counter
 
     def create_request(self, method, args=None, kwargs=None, one_way=False):
-        if args and kwargs:
-            raise InvalidRequestError('Does not support args and kwargs at ' \
-                                      'the same time')
-
-        request = JSONRPCRequest()
+        request = PickleRPCRequest()
 
         if not one_way:
             request.unique_id = self._get_unique_id()
@@ -210,7 +192,7 @@ class JSONRPCProtocol(RPCProtocol):
 
     def parse_reply(self, data):
         try:
-            rep = json.loads(data)
+            rep = pickle.loads(data)
         except Exception as e:
             raise InvalidReplyError(e)
 
@@ -218,11 +200,8 @@ class JSONRPCProtocol(RPCProtocol):
             if not k in self._ALLOWED_REPLY_KEYS:
                 raise InvalidReplyError('Key not allowed: %s' % k)
 
-        if not 'jsonrpc' in rep:
-            raise InvalidReplyError('Missing jsonrpc (version) in response.')
-
-        if rep['jsonrpc'] != self.JSON_RPC_VERSION:
-            raise InvalidReplyError('Wrong JSONRPC version')
+        if rep.get('version', self.PICKLE_RPC_VERSION) != self.PICKLE_RPC_VERSION:
+            raise InvalidReplyError('Wrong PickleRPC version')
 
         if not 'id' in rep:
             raise InvalidReplyError('Missing id in response')
@@ -233,12 +212,12 @@ class JSONRPCProtocol(RPCProtocol):
             )
 
         if 'error' in rep:
-            response = JSONRPCErrorResponse()
+            response = PickleRPCErrorResponse()
             error = rep['error']
             response.error = error['message']
             response._jsonrpc_error_code = error['code']
         else:
-            response = JSONRPCSuccessResponse()
+            response = PickleRPCSuccessResponse()
             response.result = rep.get('result', None)
 
         response.unique_id = rep['id']
@@ -247,7 +226,7 @@ class JSONRPCProtocol(RPCProtocol):
 
     def parse_request(self, data):
         try:
-            req = json.loads(data)
+            req = pickle.loads(data)
         except Exception as e:
             raise JSONRPCParseError()
 
@@ -255,23 +234,18 @@ class JSONRPCProtocol(RPCProtocol):
             if not k in self._ALLOWED_REQUEST_KEYS:
                 raise JSONRPCInvalidRequestError()
 
-        if req.get('jsonrpc', None) != self.JSON_RPC_VERSION:
+        if req.get('version', self.PICKLE_RPC_VERSION) != self.PICKLE_RPC_VERSION:
             raise JSONRPCInvalidRequestError()
 
-        if not isinstance(req['method'], six.string_types):
-            raise JSONRPCInvalidRequestError()
-
-        request = JSONRPCRequest()
+        request = PickleRPCRequest()
         request.method = str(req['method'])
         request.unique_id = req.get('id', None)
 
-        params = req.get('params', None)
-        if params != None:
-            if isinstance(params, list):
-                request.args = req['params']
-            elif isinstance(params, dict):
-                request.kwargs = req['params']
-            else:
-                raise JSONRPCInvalidParamsError()
+        request.args = req.get('args', [])
+        if request.args and not isinstance(request.args, (list, tuple)):
+            raise JSONRPCInvalidParamsError()
+        request.kwargs = req.get('kwargs', {})
+        if request.kwargs and not isinstance(request.kwargs, dict):
+            raise JSONRPCInvalidParamsError()
 
         return request

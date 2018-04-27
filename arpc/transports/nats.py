@@ -85,7 +85,6 @@ class NATSClientTransport(ClientTransport):
     async def open(self):
         if not self.implicit_nats:
             self.nats = NATS()
-            print(self.servers)
             await self.nats.connect(servers=self.servers, io_loop=self.loop)
         self.closed = False
 
