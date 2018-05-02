@@ -135,7 +135,10 @@ class RPCAssistant(object):
 
     def _req_msg(self, req):
         d = req._to_dict()
-        params = json_dumps(d['params'])
+        if 'params' in d:
+            params = json_dumps(d['params'])
+        else:
+            params = ''
 
         s = str(d['client']) + str(d['method'])
         if 'id' in d:

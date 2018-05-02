@@ -21,9 +21,10 @@ class NATSServerTransport(ServerTransport):
                    endpoint.
     """
 
-    def __init__(self, topic, queue='', servers=None, nats=None, loop=None):
+    def __init__(self, topic, queue='', servers=None, nats=None, async_mode=True, loop=None):
         self.topic = topic
         self.queue = queue
+        self.async_mode = async_mode
         self.loop = loop if loop else asyncio.get_event_loop()
         self.closed = True
 
@@ -46,7 +47,7 @@ class NATSServerTransport(ServerTransport):
             await self.nats.connect(servers=self.servers, io_loop=self.loop)
 
         logger.info("Listening on topic %s with group %s.", self.topic, self.queue)
-        self.subscription = await self.nats.subscribe(self.topic, self.queue, cb=_handler, is_async=True)
+        self.subscription = await self.nats.subscribe(self.topic, self.queue, cb=_handler, is_async=self.async_mode)
 
     async def stop_server(self):
         if self.closed:

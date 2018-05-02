@@ -3,9 +3,12 @@
 
 import six
 import inspect
+from collections import namedtuple
 
 from .exc import *
 
+
+MethodParams = namedtuple('MethodParams', ('method', 'froward_request'))
 
 def public(name=None):
     """Set RPC name on function.
@@ -48,7 +51,7 @@ class RPCDispatcher(object):
         """
         self.subdispatchers.setdefault(prefix, []).append(dispatcher)
 
-    def add_method(self, f, name=None):
+    def add_method(self, f, *, name=None, transfer_request=False):
         """Add a method to the dispatcher.
 
         :param f: Callable to be added.
@@ -64,7 +67,7 @@ class RPCDispatcher(object):
         if name in self.method_map:
             raise RPCError('Name %s already registered')
 
-        self.method_map[name] = f
+        self.method_map[name] = MethodParams(f, transfer_request)
 
     async def dispatch(self, request):
         """Fully handle request.
@@ -105,7 +108,10 @@ class RPCDispatcher(object):
 
             # we found the method
             try:
-                result = await method(*request.args, **request.kwargs)
+                if method.froward_request:
+                    result = await method.method(request, *request.args, **request.kwargs)
+                else:
+                    result = await method.method(*request.args, **request.kwargs)
             except Exception as e:
                 # an error occured within the method, return it
                 return request.error_respond(e)
@@ -142,7 +148,7 @@ class RPCDispatcher(object):
 
         raise KeyError(name)
 
-    def public(self, name=None):
+    def public(self, name=None, transfer_request=False):
         """Convenient decorator.
 
         Allows easy registering of functions to this dispatcher. Example:
@@ -170,7 +176,7 @@ class RPCDispatcher(object):
             return name
 
         def _(f):
-            self.add_method(f, name=name)
+            self.add_method(f, name=name, transfer_request=transfer_request)
             return f
 
         return _
