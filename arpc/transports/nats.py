@@ -36,7 +36,7 @@ class NATSServerTransport(ServerTransport):
         self.subscription = None
         self.servers = servers if servers else DEFAULT_SERVERS
 
-    async def start_server(self, handler):
+    async def start(self, handler):
         async def _handler(message):
             reply = await handler(message.data)
             if reply:
@@ -49,7 +49,7 @@ class NATSServerTransport(ServerTransport):
         logger.info("Listening on topic %s with group %s.", self.topic, self.queue)
         self.subscription = await self.nats.subscribe(self.topic, self.queue, cb=_handler, is_async=self.async_mode)
 
-    async def stop_server(self):
+    async def stop(self):
         if self.closed:
             return
 

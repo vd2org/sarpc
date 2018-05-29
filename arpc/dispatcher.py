@@ -5,6 +5,7 @@ import six
 import inspect
 from collections import namedtuple
 
+from .protocols import RPCRequest
 from .exc import *
 
 
@@ -69,7 +70,7 @@ class RPCDispatcher(object):
 
         self.method_map[name] = MethodParams(f, transfer_request)
 
-    async def dispatch(self, request):
+    async def dispatch(self, request: RPCRequest):
         """Fully handle request.
 
         The dispatch method determines which method to call, calls it and
@@ -113,13 +114,13 @@ class RPCDispatcher(object):
                 else:
                     result = await method.method(*request.args, **request.kwargs)
             except Exception as e:
-                # an error occured within the method, return it
+                # an error occurred within the method, return it
                 return request.error_respond(e)
 
             # respond with result
             return request.respond(result)
         except Exception as e:
-            # unexpected error, do not let client know what happened
+            # don't let client known what happens
             return request.error_respond(ServerError())
 
     def get_method(self, name):

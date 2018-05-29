@@ -3,7 +3,7 @@
 
 # FIXME: needs unittests
 # FIXME: needs checks for out-of-order, concurrency, etc as attributes
-from .exc import RPCError, AuthenticationError
+from .exc import RPCError
 
 
 class RPCServer(object):
@@ -43,11 +43,11 @@ class RPCServer(object):
         self.assistant = assistant
         self.trace = None
 
-    async def start_server(self):
-        await self.transport.start_server(self.handler)
+    async def start(self):
+        await self.transport.start(self.handler)
 
-    async def stop_server(self):
-        await self.transport.stop_server()
+    async def stop(self):
+        await self.transport.stop()
 
     async def handler(self, message):
         """Handle a single request.
@@ -73,10 +73,10 @@ class RPCServer(object):
             if self.assistant:
                 await self.assistant.server_check_request(self.protocol, request)
 
+            response = await self.dispatcher.dispatch(request)
+
         except RPCError as e:
             response = e.error_respond()
-        else:
-            response = await self.dispatcher.dispatch(request)
 
         # send reply
         if response is not None:

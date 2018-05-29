@@ -92,14 +92,6 @@ class RPCErrorResponse(RPCResponse):
 class RPCProtocol(object):
     """Base class for all protocol implementations."""
 
-    supports_out_of_order = False
-    """If true, this protocol can receive responses out of order correctly.
-
-    Note that this usually depends on the generation of unique_ids, the
-    generation of these may or may not be thread safe, depending on the
-    protocol. Ideally, only once instance of RPCProtocol should be used per
-    client."""
-
     def create_request(self, method, args=None, kwargs=None, one_way=False):
         """Creates a new RPCRequest object.
 

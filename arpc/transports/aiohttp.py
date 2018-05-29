@@ -26,7 +26,7 @@ class AioHTTPServerTransport(ServerTransport):
         self.port = port
         self.server = None
 
-    async def start_server(self, handler):
+    async def start(self, handler):
         async def _handler(request: aiohttp.web.BaseRequest):
             if request.method != 'POST':
                 logger.warning("Bad method from %s.", request.remote)
@@ -43,7 +43,7 @@ class AioHTTPServerTransport(ServerTransport):
         webserver = aiohttp.web.Server(_handler)
         self.server = await self.loop.create_server(webserver, self.host, self.port, backlog=128)
 
-    async def stop_server(self):
+    async def stop(self):
         if self.server:
             logger.info("Closing server...")
             self.server.close()

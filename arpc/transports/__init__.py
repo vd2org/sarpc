@@ -5,7 +5,7 @@
 class ServerTransport(object):
     """Base class for all server transports."""
 
-    async def start(self):
+    async def start(self, handler):
         """Receive a message from the transport.
 
         Blocks until another message has been received. May return a context

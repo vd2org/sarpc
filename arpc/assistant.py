@@ -209,7 +209,7 @@ class RPCServerAssistant(RPCAssistant):
 
         nonces = self._request_nonces[client]
 
-        for n in nonces.keys():
+        for n in nonces.copy().keys():
             if abs(int(time.time()) - nonces[n]) > MAX_TIMESTAMP_DELTA:
                 del nonces[n]
 

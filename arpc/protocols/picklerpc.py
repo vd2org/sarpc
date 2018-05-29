@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from .. import RPCProtocol, RPCRequest, RPCResponse, RPCErrorResponse, \
-    InvalidRequestError, MethodNotFoundError, ServerError, \
-    InvalidReplyError, RPCError, RPCRequest, RPCResponse
-
-import six
 import pickle
 
+import six
+
+from .. import RPCProtocol, RPCErrorResponse, \
+    InvalidRequestError, MethodNotFoundError, InvalidReplyError, RPCRequest, RPCResponse
 
 
 class FixedErrorMessageMixin(object):
@@ -119,7 +118,7 @@ def _get_code_message_and_data(error):
     return code, msg, data
 
 
-class PickleRPCRequest(RPCRequest):
+class Request(RPCRequest):
     def error_respond(self, error):
         if self.unique_id is None:
             return None
@@ -179,7 +178,7 @@ class PickleRPCProtocol(RPCProtocol):
         return self._id_counter
 
     def create_request(self, method, args=None, kwargs=None, one_way=False):
-        request = PickleRPCRequest()
+        request = Request()
 
         if not one_way:
             request.unique_id = self._get_unique_id()
@@ -207,9 +206,7 @@ class PickleRPCProtocol(RPCProtocol):
             raise InvalidReplyError('Missing id in response')
 
         if ('error' in rep) == ('result' in rep):
-            raise InvalidReplyError(
-                'Reply must contain exactly one of result and error.'
-            )
+            raise InvalidReplyError('Reply must contain exactly one of result and error.')
 
         if 'error' in rep:
             response = PickleRPCErrorResponse()
@@ -237,7 +234,7 @@ class PickleRPCProtocol(RPCProtocol):
         if req.get('version', self.PICKLE_RPC_VERSION) != self.PICKLE_RPC_VERSION:
             raise JSONRPCInvalidRequestError()
 
-        request = PickleRPCRequest()
+        request = Request()
         request.method = str(req['method'])
         request.unique_id = req.get('id', None)
 
