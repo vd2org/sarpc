@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# FIXME: needs unittests
-# FIXME: needs checks for out-of-order, concurrency, etc as attributes
-from .exc import RPCError
+import asyncio
+
+from .dispatcher import Dispatcher
+from .protocols import Protocol
+from .transports import ServerTransport
 
 
-class RPCServer(object):
+class Server:
     """High level RPC server.
 
     :param transport: The :py:class:`~tinyrpc.transports.RPCTransport` to use.
@@ -17,7 +19,7 @@ class RPCServer(object):
     trace = None
     """Trace incoming and outgoing messages.
 
-    When this attribute is set to a callable this callable will be called directly
+    When this attribute is set to a callable(or awaitable) this callable will be called directly
     after a message has been received and immediately after a reply is sent.
     The callable should accept three positional parameters:
     * *direction*: string, either '-->' for incoming or '<--' for outgoing data.
@@ -31,20 +33,19 @@ class RPCServer(object):
 
         server = RPCServer(transport, protocol, dispatcher)
         server.trace = my_trace
-        server.serve_forever
+        server.serve_forever()
 
     will log all incoming and outgoing traffic of the RPC service.
     """
 
-    def __init__(self, protocol, transport, dispatcher, assistant=None):
-        self.transport = transport
+    def __init__(self, protocol: Protocol, transport: ServerTransport, dispatcher: Dispatcher):
         self.protocol = protocol
+        self.transport = transport
         self.dispatcher = dispatcher
-        self.assistant = assistant
         self.trace = None
 
     async def start(self):
-        await self.transport.start(self.handler)
+        await self.transport.start(self)
 
     async def stop(self):
         await self.transport.stop()
@@ -64,27 +65,28 @@ class RPCServer(object):
         back to the client using the transport.
         """
 
-        if callable(self.trace):
+        # FIXME: rewrite this code
+        if asyncio.iscoroutine(self.trace):
+            await self.trace('-->', message)
+        elif callable(self.trace):
             self.trace('-->', message)
+
+        request = None
 
         try:
             request = self.protocol.parse_request(message)
-
-            if self.assistant:
-                await self.assistant.server_check_request(self.protocol, request)
-
             response = await self.dispatcher.dispatch(request)
-
-        except RPCError as e:
-            response = e.error_respond()
+        except Exception as e:
+            response = self.protocol.create_error_response(e, request)
 
         # send reply
         if response is not None:
-            if self.assistant:
-                await self.assistant.server_sign_response(response)
-
             result = response.serialize()
-            if callable(self.trace):
-                self.trace('<--', result)
+
+            # FIXME: rewrite this code
+            if asyncio.iscoroutine(self.trace):
+                await self.trace('-->', result)
+            elif callable(self.trace):
+                self.trace('-->', result)
 
             return result

@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import absolute_import  # needed for zmq import
-import six
 import zmq
 
 from . import ServerTransport, ClientTransport

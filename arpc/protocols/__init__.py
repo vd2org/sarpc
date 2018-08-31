@@ -1,98 +1,148 @@
 #!/usr/bin/env python
 
-from ..exc import *
-from collections import OrderedDict
+import typing
 
-class RPCRequest(object):
-    unique_id = None
-    """A unique ID to remember the request by. Protocol specific, may or
-    may not be set. This value should only be set by
-    :py:func:`~tinyrpc.RPCProtocol.create_request`.
-
-    The ID allows client to receive responses out-of-order and still allocate
-    them to the correct request.
-
-    Only supported if the parent protocol has
-    :py:attr:`~tinyrpc.RPCProtocol.supports_out_of_order` set to ``True``.
-    """
-
-    method = None
-    """The name of the method to be called."""
-
-    client = None
-    nonce = None
-    timestamp = None
-    sig = None
-
-    args = []
-    """The positional arguments of the method call."""
-
-    kwargs = OrderedDict()
-    """The keyword arguments of the method call."""
-
-    def error_respond(self, error):
-        """Creates an error response.
-
-        Create a response indicating that the request was parsed correctly,
-        but an error has occured trying to fulfill it.
-
-        :param error: An exception or a string describing the error.
-
-        :return: A response or ``None`` to indicate that no error should be sent
-                 out.
-        """
-        raise NotImplementedError()
-
-    def respond(self, result):
-        """Create a response.
-
-        Call this to return the result of a successful method invocation.
-
-        This creates and returns an instance of a protocol-specific subclass of
-        :py:class:`~tinyrpc.RPCResponse`.
-
-        :param result: Passed on to new response instance.
-
-        :return: A response or ``None`` to indicate this request does not expect a
-                 response.
-        """
-        raise NotImplementedError()
-
-    def serialize(self):
-        """Returns a serialization of the request.
-
-        :return: A string to be passed on to a transport.
-        """
-        raise NotImplementedError()
+from .. import Serializer
 
 
-class RPCResponse(object):
-    """RPC call response class.
-
-    Base class for all deriving responses.
-
-    Has an attribute ``result`` containing the result of the RPC call, unless
-    an error occured, in which case an attribute ``error`` will contain the
-    error message."""
-
-    unique_id = None
-
-    def serialize(self):
-        """Returns a serialization of the response.
-
-        :return: A reply to be passed on to a transport.
-        """
-        raise NotImplementedError()
-
-
-class RPCErrorResponse(RPCResponse):
-    pass
-
-
-class RPCProtocol(object):
+class Protocol:
     """Base class for all protocol implementations."""
 
-    def create_request(self, method, args=None, kwargs=None, one_way=False):
+    class Error(Exception):
+        """Base class for all exceptions thrown by :py:mod:`arpc`."""
+
+        def __init__(self, code: int = None, message: typing.Optional[str] = None,
+                     data: typing.Optional[typing.Any] = None):
+            self.code = code
+            self.message = message
+            self.data = data
+
+    class Request:
+        def __init__(self, serializer: Serializer, method: str, uid: typing.Optional[int] = None, args: typing.Optional[list] = None,
+                     kwargs: typing.Optional[dict] = None):
+            """Creates a new RPCRequest object.
+
+            :return: Request object.
+            """
+            raise NotImplementedError()
+
+        def serialize(self) -> bytes:
+            """Returns a serialization of the request.
+
+            :return: A request to be passed on to a transport.
+            """
+            raise NotImplementedError()
+
+    class SuccessResponse:
+        """RPC call response class.
+
+        Base class for all deriving responses.
+
+        Has an attribute ``result`` containing the result of the RPC call, unless
+        an error occured, in which case an attribute ``error`` will contain the
+        error message."""
+
+        def __init__(self, serializer: Serializer, uid: int, result: typing.Any):
+            """Creates success response object.
+
+            :return: Response object.
+            """
+            raise NotImplementedError()
+
+        def serialize(self) -> bytes:
+            """Returns a serialization of the response.
+
+            :return: A reply to be passed on to a transport.
+            """
+            raise NotImplementedError()
+
+    class ErrorResponse:
+        """RPC call response class.
+
+        Base class for all deriving error responses.
+
+        Has an attribute ``result`` containing the result of the RPC call, unless
+        an error occured, in which case an attribute ``error`` will contain the
+        error message."""
+
+        def __init__(self, serializer: Serializer, code: int, message: str, uid: typing.Optional[int] = None, data: typing.Any = None):
+            """Creates error response object.
+
+            :return: Response object.
+            """
+            raise NotImplementedError()
+
+        def to_exception(self):
+            """Returns a serialization of the response.
+
+            :return: A reply to be passed on to a transport.
+            """
+            raise NotImplementedError()
+
+        def serialize(self) -> bytes:
+            """Returns a serialization of the response.
+
+            :return: A reply to be passed on to a transport.
+            """
+            raise NotImplementedError()
+
+    class ParseError(Error):
+        def __init__(self, message: str = None):
+            raise NotImplementedError()
+
+    class InvalidRequestError(Error):
+        def __init__(self, message: str = None):
+            raise NotImplementedError()
+
+    class MethodNotFoundError(Error):
+        def __init__(self, message: str = None):
+            raise NotImplementedError()
+
+    class InvalidParamsError(Error):
+        def __init__(self, code: int, message: str = None):
+            raise NotImplementedError()
+
+    class InternalError(Error):
+        def __init__(self, message: str = None):
+            raise NotImplementedError()
+
+    def __init__(self, serializer: Serializer):
+        raise NotImplementedError()
+
+    def create_request(self, method: str, args: list = None,
+                       kwargs: dict = None, one_way: bool = False) -> Request:
+        """Creates a new RPCRequest object.
+
+        It is up to the implementing protocol whether or not ``args``,
+        ``kwargs``, one of these, both at once or none of them are supported.
+
+        :param uid:
+        :param method: The method name to invoke.
+        :param args: The positional arguments to call the method with.
+        :param kwargs: The keyword arguments to call the method with.
+        :param one_way: The request is an update, i.e. it does not expect a
+                        reply.
+        :return: A new :py:class:`~tinyrpc.RPCRequest` instance.
+        """
+        raise NotImplementedError()
+
+    def create_response(self, request: Request, reply: typing.Any) -> SuccessResponse:
+        """Creates a new RPCRequest object.
+
+        It is up to the implementing protocol whether or not ``args``,
+        ``kwargs``, one of these, both at once or none of them are supported.
+
+        :param request:
+        :param method: The method name to invoke.
+        :param args: The positional arguments to call the method with.
+        :param kwargs: The keyword arguments to call the method with.
+        :param one_way: The request is an update, i.e. it does not expect a
+                        reply.
+        :return: A new :py:class:`~tinyrpc.RPCRequest` instance.
+        """
+        raise NotImplementedError()
+
+    def create_error_response(self, exc: Exception, request: Request = None) -> ErrorResponse:
         """Creates a new RPCRequest object.
 
         It is up to the implementing protocol whether or not ``args``,
@@ -107,7 +157,7 @@ class RPCProtocol(object):
         """
         raise NotImplementedError()
 
-    def parse_request(self, data):
+    def parse_request(self, data: bytes) -> Request:
         """Parses a request given as a string and returns an
         :py:class:`RPCRequest` instance.
 
@@ -115,11 +165,9 @@ class RPCProtocol(object):
         """
         raise NotImplementedError()
 
-    def parse_reply(self, data):
+    def parse_response(self, data: bytes) -> typing.Union[SuccessResponse, ErrorResponse]:
         """Parses a reply and returns an :py:class:`RPCResponse` instance.
 
         :return: An instanced response.
         """
         raise NotImplementedError()
-
-

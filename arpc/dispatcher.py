@@ -1,15 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import six
 import inspect
 from collections import namedtuple
-
-from .protocols import RPCRequest
-from .exc import *
-
+from .protocols import Protocol
 
 MethodParams = namedtuple('MethodParams', ('method', 'froward_request'))
+
 
 def public(name=None):
     """Set RPC name on function.
@@ -36,7 +33,7 @@ def public(name=None):
     return _
 
 
-class RPCDispatcher(object):
+class Dispatcher:
     """Stores name-to-method mappings."""
 
     def __init__(self):
@@ -70,7 +67,7 @@ class RPCDispatcher(object):
 
         self.method_map[name] = MethodParams(f, transfer_request)
 
-    async def dispatch(self, request: RPCRequest):
+    async def dispatch(self, request: Request):
         """Fully handle request.
 
         The dispatch method determines which method to call, calls it and
@@ -139,7 +136,7 @@ class RPCDispatcher(object):
         if name in self.method_map:
             return self.method_map[name]
 
-        for prefix, subdispatchers in six.iteritems(self.subdispatchers):
+        for prefix, subdispatchers in self.subdispatchers.items():
             if name.startswith(prefix):
                 for sd in subdispatchers:
                     try:
@@ -162,7 +159,7 @@ class RPCDispatcher(object):
             def foo(bar):
                 # ...
 
-            class Baz(object):
+            class Baz:
                 def not_exposed(self):
                     # ...
 

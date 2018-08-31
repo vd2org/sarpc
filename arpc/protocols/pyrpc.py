@@ -6,12 +6,12 @@ import typing
 from .. import Protocol, Serializer
 
 
-class JSONRPCProtocol(Protocol):
-    """JSONRPC version 2.0 protocol implementation."""
+class PyRPCProtocol(Protocol):
+    """PyRPC version 1.0 protocol implementation."""
 
-    JSON_RPC_VERSION = "2.0"
-    _ALLOWED_REPLY_KEYS = sorted(['id', 'jsonrpc', 'error', 'result'])
-    _ALLOWED_REQUEST_KEYS = sorted(['id', 'jsonrpc', 'method', 'params'])
+    PY_RPC_VERSION = "1.0"
+    _ALLOWED_REPLY_KEYS = sorted(['id', 'pyrpc', 'error', 'result'])
+    _ALLOWED_REQUEST_KEYS = sorted(['id', 'pyrpc', 'method', 'args', 'kwargs'])
 
     class SuccessResponse(Protocol.SuccessResponse):
         def __init__(self, serializer: Serializer, uid: int, result: typing.Any):
@@ -20,14 +20,15 @@ class JSONRPCProtocol(Protocol):
             self.result = result
 
         def serialize(self):
-            self._serializer.serialize({
-                'jsonrpc': JSONRPCProtocol.JSON_RPC_VERSION,
+            return self._serializer.serialize({
+                'pyrpc': PyRPCProtocol.PY_RPC_VERSION,
                 'id': self.uid,
                 'result': self.result
             })
 
     class ErrorResponse(Protocol.ErrorResponse):
-        def __init__(self, serializer: Serializer, code: int, message: str, uid: typing.Optional[int] = None, data: typing.Any = None):
+        def __init__(self, serializer: Serializer, code: int, message: str, uid: typing.Optional[int] = None,
+                     data: typing.Any = None):
             self._serializer = serializer
             self.code = code
             self.message = message
@@ -61,7 +62,7 @@ class JSONRPCProtocol(Protocol):
 
         def serialize(self):
             msg = {
-                'jsonrpc': JSONRPCProtocol.JSON_RPC_VERSION,
+                'pyrpc': PyRPCProtocol.PY_RPC_VERSION,
                 'id': self.uid,
                 'error': {
                     'code': self.code,
@@ -74,11 +75,9 @@ class JSONRPCProtocol(Protocol):
             return self._serializer.serialize(msg)
 
     class Request(Protocol.Request):
-        def __init__(self, serializer: Serializer, method: str, uid: typing.Optional[int] = None, args: typing.Optional[list] = None,
+        def __init__(self, serializer: Serializer, method: str, uid: typing.Optional[int] = None,
+                     args: typing.Optional[list] = None,
                      kwargs: typing.Optional[dict] = None):
-
-            if args and kwargs:
-                raise JSONRPCProtocol.InvalidRequestError('Does not support args and kwargs at the same time.')
             self._serializer = serializer
             self.method = method
             self.uid = uid
@@ -87,13 +86,12 @@ class JSONRPCProtocol(Protocol):
 
         def serialize(self):
             msg = {
-                'jsonrpc': JSONRPCProtocol.JSON_RPC_VERSION,
+                'pyrpc': PyRPCProtocol.PY_RPC_VERSION,
                 'method': self.method,
+                'args': self.args,
+                'kwargs': self.kwargs
             }
-            if self.args:
-                msg['params'] = self.args
-            if self.kwargs:
-                msg['params'] = self.kwargs
+
             if self.uid is not None:
                 msg['id'] = self.uid
 
@@ -156,7 +154,7 @@ class JSONRPCProtocol(Protocol):
 
     def parse_request(self, data: bytes) -> Request:
         try:
-            req = json.loads(data)
+            req = self._serializer.deserialize(data)
         except Exception as e:
             raise self.ParseError()
 
@@ -164,8 +162,8 @@ class JSONRPCProtocol(Protocol):
             if k not in self._ALLOWED_REQUEST_KEYS:
                 raise self.InvalidRequestError('Key not allowed: %s' % k)
 
-        if req.get('jsonrpc') != self.JSON_RPC_VERSION:
-            raise self.InvalidRequestError("Wrong or missing jsonrpc version")
+        if req.get('pyrpc') != self.PY_RPC_VERSION:
+            raise self.InvalidRequestError("Wrong or missing pyrpc version")
 
         method = req['method']
         if not isinstance(method, str):
@@ -175,16 +173,13 @@ class JSONRPCProtocol(Protocol):
         if uid and not isinstance(uid, int):
             raise self.InvalidRequestError("id must be int")
 
-        params = req.get('params')
-        args = None
-        kwargs = None
-        if params != None:
-            if isinstance(params, list):
-                args = params
-            elif isinstance(params, dict):
-                kwargs = params
-            else:
-                raise self.InvalidParamsError("params must be list or dict")
+        args = req.get('args')
+        if args and not isinstance(args, list):
+            raise self.InvalidParamsError("args must be list")
+
+        kwargs = req.get('kwargs')
+        if kwargs and not isinstance(kwargs, dict):
+            raise self.InvalidParamsError("kwargs must be dict")
 
         return self.Request(self._serializer, method, uid, args, kwargs)
 
@@ -198,8 +193,8 @@ class JSONRPCProtocol(Protocol):
             if k not in self._ALLOWED_REPLY_KEYS:
                 raise self.InvalidReplyError('Key not allowed: %s' % k)
 
-        if rep.get('jsonrpc') != self.JSON_RPC_VERSION:
-            raise self.InvalidReplyError("Wrong or missing jsonrpc version")
+        if rep.get('pyrpc') != self.PY_RPC_VERSION:
+            raise self.InvalidReplyError("Wrong or missing pyrpc version")
 
         uid = rep.get('id')
         if uid and not isinstance(uid, int):

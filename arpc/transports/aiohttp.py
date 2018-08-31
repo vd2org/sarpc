@@ -1,24 +1,21 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import logging
 import asyncio
+import logging
+
 import aiohttp.web
 
 from . import ServerTransport, ClientTransport
 
-logger = logging.getLogger('aarpc.transports.aiohttp')
+logger = logging.getLogger('arpc.transports.aiohttp')
 
 DEFAULT_TIMEOUT = 10
 DEFAULT_SERVER_PORT = 80
 
 
 class AioHTTPServerTransport(ServerTransport):
-    """Server transport based on a aiohttp.
-
-    :param socket: A :py:const:`zmq.ROUTER` socket instance, bound to an
-                   endpoint.
-    """
+    """Server transport based on a aiohttp."""
 
     def __init__(self, host=None, port=DEFAULT_SERVER_PORT, loop=None):
         self.loop = loop if loop else asyncio.get_event_loop()
@@ -52,11 +49,7 @@ class AioHTTPServerTransport(ServerTransport):
 
 
 class AioHTTPClientTransport(ClientTransport):
-    """Client transport based on a aiohttp.
-
-    :param socket: A :py:const:`zmq.REQ` socket instance, connected to the
-                   server socket.
-    """
+    """Client transport based on a aiohttp."""
 
     def __init__(self, url, timeout=DEFAULT_TIMEOUT, session=None, loop=None):
         self.url = url

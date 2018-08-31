@@ -1,25 +1,21 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import logging
 import asyncio
+import logging
+
 from nats.aio.client import Client as NATS
-from nats.aio.errors import ErrConnectionClosed, ErrTimeout, ErrNoServers
 
 from . import ServerTransport, ClientTransport
 
-logger = logging.getLogger('aarpc.transports.nats')
+logger = logging.getLogger('arpc.transports.nats')
 
 DEFAULT_TIMEOUT = 10
-DEFAULT_SERVERS=("nats://127.0.0.1:4222",)
+DEFAULT_SERVERS = ("nats://127.0.0.1:4222",)
 
 
 class NATSServerTransport(ServerTransport):
-    """Server transport based on a NATS.
-
-    :param socket: A :py:const:`zmq.ROUTER` socket instance, bound to an
-                   endpoint.
-    """
+    """Server transport based on a NATS."""
 
     def __init__(self, topic, queue='', servers=None, nats=None, async_mode=True, loop=None):
         self.topic = topic
@@ -64,11 +60,7 @@ class NATSServerTransport(ServerTransport):
 
 
 class NATSClientTransport(ClientTransport):
-    """Client transport based on a NATS.
-
-    :param socket: A :py:const:`zmq.REQ` socket instance, connected to the
-                   server socket.
-    """
+    """Client transport based on a NATS."""
 
     def __init__(self, topic, servers=None, nats=None, timeout=DEFAULT_TIMEOUT, loop=None):
         self.topic = topic

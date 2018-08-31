@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 
-class ServerTransport(object):
+class ServerTransport:
     """Base class for all server transports."""
 
     async def start(self, handler):
@@ -34,7 +34,7 @@ class ServerTransport(object):
         raise NotImplementedError
 
 
-class ClientTransport(object):
+class ClientTransport:
     """Base class for all client transports."""
 
     async def open(self):
@@ -56,4 +56,4 @@ class ClientTransport(object):
         :param message: A string to send.
         :return: A string containing the server reply.
         """
-        raise NotImplementedError
+        raise NotImplementedError()
