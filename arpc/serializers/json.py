@@ -5,7 +5,7 @@ import json
 import logging
 import sys
 
-from .. import Serializer
+from ..serializer import Serializer
 
 logger = logging.getLogger('arpc.serializers.json')
 
@@ -26,4 +26,4 @@ class JsonSerializer(Serializer):
         return json_dumps(message)
 
     def deserialize(self, data: bytes) -> dict:
-        return json.loads(data).encode()
+        return json.loads(data)

@@ -6,21 +6,23 @@ import logging
 
 import aiohttp.web
 
-from . import ServerTransport, ClientTransport
+from ..transport import ServerTransport, ClientTransport
 
 logger = logging.getLogger('arpc.transports.aiohttp')
 
 DEFAULT_TIMEOUT = 10
 DEFAULT_SERVER_PORT = 80
+DEFAULT_BACKLOG = 128
 
 
 class AioHTTPServerTransport(ServerTransport):
     """Server transport based on a aiohttp."""
 
-    def __init__(self, host=None, port=DEFAULT_SERVER_PORT, loop=None):
+    def __init__(self, host=None, port=DEFAULT_SERVER_PORT, backlog=DEFAULT_BACKLOG, loop=None):
         self.loop = loop if loop else asyncio.get_event_loop()
         self.host = host
         self.port = port
+        self.backlog = port
         self.server = None
 
     async def start(self, handler):
@@ -38,7 +40,7 @@ class AioHTTPServerTransport(ServerTransport):
         logger.info("Listening on http://%s:%s%s", self.host, self.port)
 
         webserver = aiohttp.web.Server(_handler)
-        self.server = await self.loop.create_server(webserver, self.host, self.port, backlog=128)
+        self.server = await self.loop.create_server(webserver, self.host, self.port, backlog=self.backlog)
 
     async def stop(self):
         if self.server:

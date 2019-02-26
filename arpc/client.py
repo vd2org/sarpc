@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from .protocols import Protocol
-from .transports import ClientTransport
+from .protocol import Protocol, ErrorResponse
+from .transport import ClientTransport
+from .serializer import Serializer
 
 
 class Client:
@@ -13,19 +14,36 @@ class Client:
                       instance.
     """
 
-    def __init__(self, protocol: Protocol, transport: ClientTransport):
-        self.protocol = protocol
-        self.transport = transport
-        self.closed = True
+    def __init__(self, protocol: Protocol, serializer: Serializer, transport: ClientTransport):
+        self.__protocol = protocol
+        self.__serializer = serializer
+        self.__transport = transport
+        self.__active = False
+
+    @property
+    def protocol(self):
+        return self.__protocol
+
+    @property
+    def serializer(self):
+        return self.__serializer
+
+    @property
+    def transport(self):
+        return self.__transport
+
+    @property
+    def active(self):
+        return self.__active
 
     async def open(self):
         await self.transport.open()
-        self.closed = False
+        self.__active = True
         return self
 
     async def close(self):
         await self.transport.close()
-        self.closed = True
+        self.__active = False
         return self
 
     async def call(self, method, args, kwargs, one_way=False):
@@ -40,22 +58,24 @@ class Client:
         :param one_way: Whether or not a reply is desired.
         """
 
-        if self.closed:
+        if not self.__active:
             raise RuntimeError('Client is closed')
 
         req = self.protocol.create_request(method, args, kwargs, one_way)
+        req_data = self.serializer.serialize(req.to_data())
 
         # sends ...
-        reply = await self.transport.send_message(req.serialize(), not one_way)
+        reply = await self.transport.send_message(req_data, not one_way)
 
         if one_way:
             # ... and be done
             return
 
         # ... or process the reply
-        rep = self.protocol.parse_response(reply)
+        rep_data = self.serializer.deserialize(reply)
+        rep = self.protocol.parse_response(rep_data)
 
-        if isinstance(rep, self.protocol.ErrorResponse):
+        if isinstance(rep, ErrorResponse):
             raise rep.to_exception()
 
         return rep.result
@@ -68,31 +88,3 @@ class Client:
         :return: :py:class:`~tinyrpc.client.RPCProxy` instance."""
         return Proxy(self, prefix, one_way)
 
-
-class Proxy:
-    """Create a new remote proxy object.
-
-    Proxies allow calling of methods through a simpler interface. See the
-    documentation for an example.
-
-    :param client: An :py:class:`~tinyrpc.client.RPCClient` instance.
-    :param prefix: Prefix to prepend to every method name.
-    :param one_way: Passed to every call of
-                    :py:func:`~tinyrpc.client.call`.
-    """
-
-    def __init__(self, client, prefix='', one_way=False):
-        self.client = client
-        self.prefix = prefix
-        self.one_way = one_way
-
-    def __getattr__(self, name):
-        """Returns a proxy function that, when called, will call a function
-        name ``name`` on the client associated with the proxy.
-        """
-        return lambda *args, **kwargs: self.client.call(
-            self.prefix + name,
-            args,
-            kwargs,
-            one_way=self.one_way
-        )

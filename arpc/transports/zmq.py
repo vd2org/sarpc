@@ -1,46 +1,72 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from __future__ import absolute_import  # needed for zmq import
+import asyncio
+import logging
+import typing
+
 import zmq
+import zmq.asyncio
+import zmq.devices
 
 from . import ServerTransport, ClientTransport
 
+logger = logging.getLogger('arpc.transports.zmq')
+
+DEFAULT_PARALLEL_TASKS = 3
+
 
 class ZmqServerTransport(ServerTransport):
-    """Server transport based on a :py:const:`zmq.ROUTER` socket.
+    """Server transport based on a ZeroMQ req/rep socket."""
 
-    :param socket: A :py:const:`zmq.ROUTER` socket instance, bound to an
-                   endpoint.
-    """
+    def __init__(self, bind_url: str, topic: typing.Optional[bytes] = None, context: zmq.Context = None,
+                 parallel_tasks: int = DEFAULT_PARALLEL_TASKS, loop=None):
+        self.topic = topic
+        self.bind_url = bind_url
+        self.context = context
+        self.parallel_tasks = parallel_tasks
+        self.loop = loop if loop else asyncio.get_event_loop()
+        self.closed = True
 
-    def __init__(self, socket):
-        self.socket = socket
+        self.implicit_context = context is not None
 
-    async def receive_message(self):
-        msg = await self.socket.recv_multipart()
-        return msg[:-1], msg[-1]
+        self._awaits = list()
 
-    async def send_reply(self, context, reply):
-        if six.PY3 and isinstance(reply, six.string_types):
-            # zmq won't accept unicode strings
-            reply = reply.encode()
+    async def start(self, handler):
+        async def _handler(message):
+            reply = await handler(message.data)
+            if reply:
+                await self.nats.publish(message.reply, reply)
 
-        await self.socket.send_multipart(context + [reply])
+        async def _srv():
+            sock = self._ctx.socket(zmq.REP)
+            sock.connect("inproc://broker_%s" % id(self))
+            while True:
+                reply = None
+                try:
+                    message = await sock.recv_pyobj()
+                    reply = await handler(message)
+                finally:
+                    await sock.send_pyobj(reply)
 
-    @classmethod
-    def create(cls, zmq_context, endpoint):
-        """Create new server transport.
+        frontend = self.context.socket(zmq.ROUTER)
+        backend = self.context.socket(zmq.DEALER)
 
-        Instead of creating the socket yourself, you can call this function and
-        merely pass the :py:class:`zmq.core.context.Context` instance.
+        frontend.bind(self.bind_url)
+        backend.bind("inproc://broker_%s" % id(self))
 
-        :param zmq_context: A 0mq context.
-        :param endpoint: The endpoint clients will connect to.
-        """
-        socket = zmq_context.socket(zmq.ROUTER)
-        socket.bind(endpoint)
-        return cls(socket)
+        zmq.proxy(frontend, backend)
+
+        for i in range(self.parallel_tasks):
+            self._awaits.append(_srv())
+
+        asyncio.gather(*self._awaits, loop=self.loop)
+
+        self.closed = False
+
+    async def stop(self):
+        self.closed = True
+        logger.info("Closed.")
 
 
 class ZmqClientTransport(ClientTransport):

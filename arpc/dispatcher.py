@@ -1,9 +1,11 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
+import logging
 import inspect
 from collections import namedtuple
-from .protocols import Protocol
+
+from .protocol import Request
+from . import exceptions
+
+logger = logging.getLogger('arpc.dispatcher')
 
 MethodParams = namedtuple('MethodParams', ('method', 'froward_request'))
 
@@ -98,27 +100,35 @@ class Dispatcher:
         :param caller: An optional callable used to invoke the method.
         :return: An :py:func:`~tinyrpc.RPCResponse`.
         """
+
+        # find method
         try:
-            try:
-                method = self.get_method(request.method)
-            except KeyError as e:
-                return request.error_respond(MethodNotFoundError(e))
+            method = self.get_method(request.method)
+        except KeyError:
+            raise exceptions.MethodNotFoundError()
 
-            # we found the method
-            try:
-                if method.froward_request:
-                    result = await method.method(request, *request.args, **request.kwargs)
-                else:
-                    result = await method.method(*request.args, **request.kwargs)
-            except Exception as e:
-                # an error occurred within the method, return it
-                return request.error_respond(e)
 
-            # respond with result
-            return request.respond(result)
-        except Exception as e:
-            # don't let client known what happens
-            return request.error_respond(ServerError())
+        try:
+            sig = inspect.signature(method.method)
+            if method.froward_request:
+                sig.bind(request, *request.args, **request.kwargs)
+            else:
+                sig.bind(*request.args, **request.kwargs)
+        except TypeError as e:
+            # print(repr(e), str(e))
+            raise exceptions.InvalidParamsError(str(e))
+
+        # call method
+        try:
+            if method.froward_request:
+                return await method.method(request, *request.args, **request.kwargs)
+            else:
+                return await method.method(*request.args, **request.kwargs)
+        except exceptions.BaseRpcError as e:
+            raise e
+        except Exception:
+            # Don't let client known what happens
+            raise exceptions.InternalError()
 
     def get_method(self, name):
         """Retrieve a previously registered method.

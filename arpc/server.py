@@ -4,8 +4,9 @@
 import asyncio
 
 from .dispatcher import Dispatcher
-from .protocols import Protocol
-from .transports import ServerTransport
+from .protocol import Protocol
+from .transport import ServerTransport
+from .serializer import Serializer
 
 
 class Server:
@@ -38,17 +39,18 @@ class Server:
     will log all incoming and outgoing traffic of the RPC service.
     """
 
-    def __init__(self, protocol: Protocol, transport: ServerTransport, dispatcher: Dispatcher):
-        self.protocol = protocol
-        self.transport = transport
-        self.dispatcher = dispatcher
+    def __init__(self, protocol: Protocol, serializer: Serializer, transport: ServerTransport, dispatcher: Dispatcher):
+        self.__protocol = protocol
+        self.__serializer = serializer
+        self.__transport = transport
+        self.__dispatcher = dispatcher
         self.trace = None
 
     async def start(self):
-        await self.transport.start(self)
+        await self.__transport.start(self.handler)
 
     async def stop(self):
-        await self.transport.stop()
+        await self.__transport.stop()
 
     async def handler(self, message):
         """Handle a single request.
@@ -74,14 +76,17 @@ class Server:
         request = None
 
         try:
-            request = self.protocol.parse_request(message)
-            response = await self.dispatcher.dispatch(request)
+            req_data = self.__serializer.deserialize(message)
+            request = self.__protocol.parse_request(req_data)
+            reply = await self.__dispatcher.dispatch(request)
+
+            response = self.__protocol.create_response(request, reply)
         except Exception as e:
-            response = self.protocol.create_error_response(e, request)
+            response = self.__protocol.create_error_response(e, request)
 
         # send reply
         if response is not None:
-            result = response.serialize()
+            result = self.__serializer.serialize(response.to_data())
 
             # FIXME: rewrite this code
             if asyncio.iscoroutine(self.trace):

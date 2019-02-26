@@ -1,9 +1,121 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import typing
 
-from .. import Protocol, Serializer
+from .. import exceptions
+from ..protocol import Protocol, Request, SuccessResponse, ErrorResponse
+
+PARSE_ERROR_CODE = -32700
+INVALID_REQUEST_CODE = -32600
+METHOD_NOT_FOUND_CODE = -32601
+INVALID_PARAMS_CODE = -32602
+INTERNAL_ERROR_CODE = -32603
+
+MIN_VALID_SERVER_ERROR_CODE = -32099
+MAX_VALID_SERVER_ERROR_CODE = -32000
+
+
+class JSONRPCParseError(exceptions.ParseError, exceptions.RpcError):
+    def __init__(self, message="Parse error", data=None):
+        super().__init__(PARSE_ERROR_CODE, message, data=data)
+
+
+class JSONRPCInvalidRequestError(exceptions.InvalidRequestError, exceptions.RpcError):
+    def __init__(self, message="Invalid Request", data=None):
+        super().__init__(INVALID_REQUEST_CODE, message, data=data)
+
+
+class JSONRPCMethodNotFoundError(exceptions.MethodNotFoundError, exceptions.RpcError):
+    def __init__(self, message="Method not found", data=None):
+        super().__init__(METHOD_NOT_FOUND_CODE, message, data=data)
+
+
+class JSONRPCInvalidParamsError(exceptions.InvalidParamsError, exceptions.RpcError):
+    def __init__(self, message="Invalid params", data=None):
+        super().__init__(INVALID_PARAMS_CODE, message, data)
+
+
+class JSONRPCInternalError(exceptions.InternalError, exceptions.RpcError):
+    def __init__(self, message="Internal error", data=None):
+        super().__init__(INTERNAL_ERROR_CODE, message, data=data)
+
+
+errors_by_code = {
+    PARSE_ERROR_CODE: JSONRPCParseError,
+    INVALID_REQUEST_CODE: JSONRPCInvalidRequestError,
+    METHOD_NOT_FOUND_CODE: JSONRPCMethodNotFoundError,
+    INVALID_PARAMS_CODE: JSONRPCInvalidParamsError,
+    INTERNAL_ERROR_CODE: JSONRPCInternalError,
+}
+
+
+class JSONRPCServerError(exceptions.ServerError, exceptions.RpcError):
+    @classmethod
+    def check_valid(cls, code):
+        return MIN_VALID_SERVER_ERROR_CODE <= code <= MAX_VALID_SERVER_ERROR_CODE
+
+    def __init__(self, code: int = MAX_VALID_SERVER_ERROR_CODE):
+        if not self.check_valid(code):
+            raise ValueError("Wrong code for Server error!")
+        super().__init__(code, "Server error")
+
+
+class JSONRPCInvalidRequestError(exceptions.BaseError):
+    pass
+
+
+class JSONRPCRequest(Request):
+    def __init__(self, method: str, uid: typing.Optional[typing.Any] = None,
+                 args: typing.Optional[list] = None, kwargs: typing.Optional[dict] = None):
+
+        if args and kwargs:
+            raise JSONRPCInvalidRequestError('Does not support args and kwargs at the same time.')
+        super().__init__(method, uid, args, kwargs)
+
+    def to_data(self):
+        data = {
+            'jsonrpc': JSONRPCProtocol.JSON_RPC_VERSION,
+            'method': self.method,
+        }
+        if self.args:
+            data['params'] = self.args
+        if self.kwargs:
+            data['params'] = self.kwargs
+        if self.uid is not None:
+            data['id'] = self.uid
+
+        return data
+
+
+class JSONRPCSuccessResponse(SuccessResponse):
+    def to_data(self):
+        return {
+            'jsonrpc': JSONRPCProtocol.JSON_RPC_VERSION,
+            'id': self.uid,
+            'result': self.result
+        }
+
+
+class JSONRPCErrorResponse(ErrorResponse):
+    def to_exception(self):
+        error = errors_by_code.get(self.code)
+        if not error and JSONRPCServerError.check_valid(self.code):
+            error = JSONRPCServerError(self.code)
+        if not error:
+            error = exceptions.RpcError(self.code, self.message, self.data)
+        return error
+
+    def to_data(self):
+        data = {
+            'jsonrpc': JSONRPCProtocol.JSON_RPC_VERSION,
+            'id': self.uid,
+            'error': {
+                'code': self.code,
+                'message': self.message,
+            }
+        }
+        if self.data:
+            data['error']['data'] = self.data
+
+        return data
 
 
 class JSONRPCProtocol(Protocol):
@@ -13,122 +125,11 @@ class JSONRPCProtocol(Protocol):
     _ALLOWED_REPLY_KEYS = sorted(['id', 'jsonrpc', 'error', 'result'])
     _ALLOWED_REQUEST_KEYS = sorted(['id', 'jsonrpc', 'method', 'params'])
 
-    class SuccessResponse(Protocol.SuccessResponse):
-        def __init__(self, serializer: Serializer, uid: int, result: typing.Any):
-            self._serializer = serializer
-            self.uid = uid
-            self.result = result
-
-        def serialize(self):
-            self._serializer.serialize({
-                'jsonrpc': JSONRPCProtocol.JSON_RPC_VERSION,
-                'id': self.uid,
-                'result': self.result
-            })
-
-    class ErrorResponse(Protocol.ErrorResponse):
-        def __init__(self, serializer: Serializer, code: int, message: str, uid: typing.Optional[int] = None, data: typing.Any = None):
-            self._serializer = serializer
-            self.code = code
-            self.message = message
-            self.uid = uid
-            self.data = data
-
-        def to_exception(self):
-            class ParseError(Protocol.Error):
-                def __init__(self, message: str = "Parse error."):
-                    super().__init__(-32700, message)
-
-            class InvalidRequestError(Protocol.Error):
-                def __init__(self, message: str = "Invalid Request"):
-                    super().__init__(-32600, message)
-
-            class MethodNotFoundError(Protocol.Error):
-                def __init__(self, message: str = "Method not found"):
-                    super().__init__(-32601, message)
-
-            class InvalidParamsError(Protocol.Error):
-                def __init__(self, message: str = "Invalid params"):
-                    super().__init__(-32602, message)
-
-            class InternalError(Protocol.Error):
-                def __init__(self, message: str = "Internal error"):
-                    super().__init__(-32603, message)
-
-            class InvalidReplyError(Protocol.Error):
-                def __init__(self, message: str = "Invalid reply"):
-                    super().__init__(-32001, message)
-
-        def serialize(self):
-            msg = {
-                'jsonrpc': JSONRPCProtocol.JSON_RPC_VERSION,
-                'id': self.uid,
-                'error': {
-                    'code': self.code,
-                    'message': str(self.message),
-                }
-            }
-            if hasattr(self, 'data'):
-                msg['error']['data'] = self.data
-
-            return self._serializer.serialize(msg)
-
-    class Request(Protocol.Request):
-        def __init__(self, serializer: Serializer, method: str, uid: typing.Optional[int] = None, args: typing.Optional[list] = None,
-                     kwargs: typing.Optional[dict] = None):
-
-            if args and kwargs:
-                raise JSONRPCProtocol.InvalidRequestError('Does not support args and kwargs at the same time.')
-            self._serializer = serializer
-            self.method = method
-            self.uid = uid
-            self.args = args
-            self.kwargs = kwargs
-
-        def serialize(self):
-            msg = {
-                'jsonrpc': JSONRPCProtocol.JSON_RPC_VERSION,
-                'method': self.method,
-            }
-            if self.args:
-                msg['params'] = self.args
-            if self.kwargs:
-                msg['params'] = self.kwargs
-            if self.uid is not None:
-                msg['id'] = self.uid
-
-            return self._serializer.serialize(msg)
-
-    class ParseError(Protocol.Error):
-        def __init__(self, message: str = "Parse error."):
-            super().__init__(-32700, message)
-
-    class InvalidRequestError(Protocol.Error):
-        def __init__(self, message: str = "Invalid Request"):
-            super().__init__(-32600, message)
-
-    class MethodNotFoundError(Protocol.Error):
-        def __init__(self, message: str = "Method not found"):
-            super().__init__(-32601, message)
-
-    class InvalidParamsError(Protocol.Error):
-        def __init__(self, message: str = "Invalid params"):
-            super().__init__(-32602, message)
-
-    class InternalError(Protocol.Error):
-        def __init__(self, message: str = "Internal error"):
-            super().__init__(-32603, message)
-
-    class InvalidReplyError(Protocol.Error):
-        def __init__(self, message: str = "Invalid reply"):
-            super().__init__(-32001, message)
-
-    def __init__(self, serializer: Serializer, counter: int = 0):
+    def __init__(self, counter: int = 0):
         """Creates new protocol object.
 
         :type counter: start request id counter value
         """
-        self._serializer = serializer
         self._counter = counter
 
     def _get_uid(self):
@@ -136,91 +137,97 @@ class JSONRPCProtocol(Protocol):
         return self._counter
 
     def create_request(self, method: str, args: list = None, kwargs: dict = None,
-                       one_way: bool = False) -> Request:
+                       one_way: bool = False) -> JSONRPCRequest:
 
         if args and kwargs:
-            raise self.InvalidRequestError('Does not support args and kwargs at the same time.')
+            raise JSONRPCInvalidRequestError('Does not support args and kwargs at the same time.')
 
         uid = None if one_way else self._get_uid()
 
-        return self.Request(self._serializer, method, uid, args, kwargs)
+        return JSONRPCRequest(method, uid, args, kwargs)
 
-    def create_response(self, request: Request, reply: typing.Any) -> SuccessResponse:
-        return self.SuccessResponse(self._serializer, request.uid, reply)
+    def create_response(self, request: Request, reply: typing.Any) -> JSONRPCSuccessResponse:
+        return JSONRPCSuccessResponse(request.uid, reply)
 
-    def create_error_response(self, exc: Exception,
-                              request: Request = None) -> ErrorResponse:
-        e = self.InternalError() if isinstance(exc, self.Error) else self.InternalError()
+    def create_error_response(self, exception: Exception,
+                              request: typing.Optional[Request] = None) -> JSONRPCErrorResponse:
         uid = request.uid if request else None
-        return self.ErrorResponse(self._serializer, e.code, e.message, uid, e.data)
-
-    def parse_request(self, data: bytes) -> Request:
-        try:
-            req = json.loads(data)
-        except Exception as e:
-            raise self.ParseError()
-
-        for k in req.keys():
-            if k not in self._ALLOWED_REQUEST_KEYS:
-                raise self.InvalidRequestError('Key not allowed: %s' % k)
-
-        if req.get('jsonrpc') != self.JSON_RPC_VERSION:
-            raise self.InvalidRequestError("Wrong or missing jsonrpc version")
-
-        method = req['method']
-        if not isinstance(method, str):
-            raise self.InvalidRequestError("method must be str")
-
-        uid = req.get('id')
-        if uid and not isinstance(uid, int):
-            raise self.InvalidRequestError("id must be int")
-
-        params = req.get('params')
-        args = None
-        kwargs = None
-        if params != None:
-            if isinstance(params, list):
-                args = params
-            elif isinstance(params, dict):
-                kwargs = params
-            else:
-                raise self.InvalidParamsError("params must be list or dict")
-
-        return self.Request(self._serializer, method, uid, args, kwargs)
-
-    def parse_response(self, data: bytes) -> typing.Union[SuccessResponse, ErrorResponse]:
-        try:
-            rep = self._serializer.deserialize(data)
-        except Exception as e:
-            raise self.InvalidReplyError()
-
-        for k in rep.keys():
-            if k not in self._ALLOWED_REPLY_KEYS:
-                raise self.InvalidReplyError('Key not allowed: %s' % k)
-
-        if rep.get('jsonrpc') != self.JSON_RPC_VERSION:
-            raise self.InvalidReplyError("Wrong or missing jsonrpc version")
-
-        uid = rep.get('id')
-        if uid and not isinstance(uid, int):
-            raise self.InvalidReplyError("id must be int")
-
-        if ('error' in rep) == ('result' in rep):
-            raise self.InvalidReplyError('Reply must contain exactly one of result and error.')
-
-        if 'result' in rep:
-            return self.SuccessResponse(self._serializer, uid, rep['result'])
+        if isinstance(exception, exceptions.RpcError):
+            pass
+        elif isinstance(exception, exceptions.ParseError):
+            exception = JSONRPCParseError()
+        elif isinstance(exception, exceptions.InvalidRequestError):
+            exception = JSONRPCInvalidRequestError()
+        elif isinstance(exception, exceptions.MethodNotFoundError):
+            exception = JSONRPCMethodNotFoundError()
+        elif isinstance(exception, exceptions.InvalidParamsError):
+            print(str(exception))
+            exception = JSONRPCInvalidParamsError(data=str(exception))
+        elif isinstance(exception, exceptions.InternalError):
+            exception = JSONRPCInternalError()
+        elif isinstance(exception, exceptions.ServerError):
+            exception = JSONRPCServerError()
         else:
-            error = rep['error']
+            exception = JSONRPCInternalError()
+
+        return JSONRPCErrorResponse(uid, exception.code, exception.message, exception.data)
+
+    def parse_request(self, data: dict) -> JSONRPCRequest:
+        for k in data.keys():
+            if k not in self._ALLOWED_REQUEST_KEYS:
+                raise JSONRPCInvalidRequestError('Key not allowed: %s' % k)
+
+        if data.get('jsonrpc') != self.JSON_RPC_VERSION:
+            raise JSONRPCInvalidRequestError("Wrong or missing jsonrpc version")
+
+        method = data['method']
+        if not isinstance(method, str):
+            raise JSONRPCInvalidRequestError("method must be str")
+
+        uid = data.get('id')
+        if uid and not isinstance(uid, int):
+            raise JSONRPCInvalidRequestError("id must be int")
+
+        params = data.get('params')
+        args = list()
+        kwargs = dict()
+        if isinstance(params, list):
+            args = params
+        elif isinstance(params, dict):
+            kwargs = params
+        else:
+            raise JSONRPCInvalidParamsError("params must be list or dict")
+
+        return JSONRPCRequest(method, uid, args, kwargs)
+
+    def parse_response(self, data: dict) -> typing.Union[JSONRPCSuccessResponse, JSONRPCErrorResponse]:
+        for k in data.keys():
+            if k not in self._ALLOWED_REPLY_KEYS:
+                raise exceptions.ServerReplyError('Key not allowed: %s' % k)
+
+        if data.get('jsonrpc') != self.JSON_RPC_VERSION:
+            raise exceptions.ServerReplyError("Wrong or missing jsonrpc version")
+
+        uid = data.get('id')
+        if uid and not isinstance(uid, (int, str)):
+            raise exceptions.ServerReplyError("id must be int or str or None")
+
+        if ('error' in data) == ('result' in data):
+            raise exceptions.ServerReplyError('Reply must contain exactly one of result and error.')
+
+        if 'result' in data:
+            return JSONRPCSuccessResponse(uid, data['result'])
+        else:
+            error = data['error']
 
             code = error.get('code')
             if not isinstance(code, int):
-                raise self.InvalidReplyError("error.code must be int")
+                raise exceptions.ServerReplyError("error.code must be int")
 
-            message = error.get('code')
-            if message and not isinstance(message, str):
-                raise self.InvalidReplyError("error.message must be str")
+            message = error.get('message')
+            if not isinstance(message, str):
+                raise exceptions.ServerReplyError("error.message must be str")
 
             data = error.get('data')
 
-            return self.ErrorResponse(self._serializer, code, message, uid, data)
+            return JSONRPCErrorResponse(uid, code, message, data)

@@ -2,15 +2,15 @@
 # -*- coding: utf-8 -*-
 
 import logging
-import pickle
+import msgpack
 
 from .serializer import Serializer
 
-logger = logging.getLogger('arpc.serializers.pickle')
+logger = logging.getLogger('arpc.serializers.msgpack')
 
 
-class PickleSerializer(Serializer):
-    """Pickle serializer."""
+class MsgpackSerializer(Serializer):
+    """Msgpack serializer."""
 
     def __init__(self, protocol=None, fix_imports=True):
         self.protocol = protocol
